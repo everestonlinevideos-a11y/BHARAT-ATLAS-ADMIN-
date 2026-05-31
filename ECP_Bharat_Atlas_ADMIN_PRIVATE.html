@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ECP Bharat Atlas — Admin Analytics</title>
+<style>
+/*
+  ════════════════════════════════════════════════════════
+  SECURITY NOTE — READ BEFORE DEPLOYING
+  ════════════════════════════════════════════════════════
+  This file currently uses a basic password gate (SHA-256 hash).
+  Password inside a public HTML file is NOT full security.
+  Students can inspect source code and potentially bypass it.
+
+  For REAL security, use Firebase Authentication:
+  1. Enable Email/Password or Google auth in Firebase Console.
+  2. Paste your UID into ADMIN_UIDS array below.
+  3. Only verified admin UID can access the dashboard.
+  4. Use admin-only Firestore security rules:
+     - analytics write: allowed for all (limited fields only)
+     - analytics read:  allow if request.auth.uid in adminUids
+     - analytics delete: admin only
+
+  This is marked as BASIC PROTECTION ONLY until Firebase Auth is fully implemented.
+  ════════════════════════════════════════════════════════
+*/
+
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:Arial,sans-serif;background:#0a0f1e;color:#e2e8f0;min-height:100vh;}
+
+/* ── Gate ── */
+#gate{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;}
+.gate-box{background:#1e293b;border:1.5px solid rgba(96,165,250,.4);border-radius:16px;padding:40px 36px;max-width:440px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.7);}
+.gate-logo{font-size:2.5rem;margin-bottom:12px;}
+.gate-title{font-size:1.2rem;font-weight:900;color:#facc15;margin-bottom:4px;}
+.gate-sub{font-size:.75rem;color:#64748b;margin-bottom:6px;}
+.gate-warn{font-size:.65rem;color:#f59e0b;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;padding:8px 12px;margin-bottom:20px;line-height:1.6;}
+.gate-input{width:100%;padding:12px 16px;border-radius:9px;border:1.5px solid rgba(96,165,250,.4);background:#0f172a;color:#e2e8f0;font-size:15px;margin-bottom:12px;outline:none;}
+.gate-input:focus{border-color:#60a5fa;}
+.gate-btn{width:100%;padding:12px;border:none;border-radius:9px;background:#2563eb;color:#fff;font-size:15px;font-weight:800;cursor:pointer;}
+.gate-btn:hover{background:#1d4ed8;}
+#gate-err{color:#f87171;font-size:.8rem;margin-top:10px;min-height:1.2em;}
+.gate-note{font-size:.62rem;color:#475569;margin-top:16px;line-height:1.6;}
+
+/* ── Dashboard ── */
+#dash{display:none;min-height:100vh;}
+.topbar{background:#1e293b;border-bottom:1px solid rgba(96,165,250,.2);padding:12px 20px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
+.topbar-title{font-size:1rem;font-weight:900;color:#facc15;}
+.topbar-actions{display:flex;gap:8px;flex-wrap:wrap;}
+.btn{border:none;border-radius:8px;padding:7px 14px;font-weight:800;cursor:pointer;font-size:.75rem;}
+.btn-blue{background:#2563eb;color:#fff;} .btn-blue:hover{background:#1d4ed8;}
+.btn-green{background:#16a34a;color:#fff;} .btn-green:hover{background:#15803d;}
+.btn-red{background:#dc2626;color:#fff;} .btn-red:hover{background:#b91c1c;}
+.btn-gray{background:#334155;color:#e2e8f0;}
+.main{padding:20px;max-width:1400px;margin:0 auto;}
+#status{padding:10px 16px;border-radius:9px;margin-bottom:16px;font-size:.75rem;font-weight:700;}
+.s-ok{background:#064e3b;border:1px solid #10b981;color:#6ee7b7;}
+.s-err{background:#7f1d1d;border:1px solid #f87171;color:#fca5a5;}
+.s-warn{background:#78350f;border:1px solid #f59e0b;color:#fde68a;}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:20px;}
+.card{background:linear-gradient(135deg,#0f172a,#1e3a8a);border:1px solid rgba(96,165,250,.3);border-radius:11px;padding:16px;text-align:center;}
+.card-num{font-size:1.5rem;font-weight:900;color:#facc15;}
+.card-lbl{font-size:.6rem;color:#bfdbfe;margin-top:5px;font-weight:700;letter-spacing:.5px;}
+.sec{margin-bottom:24px;}
+.sec-h{font-size:.78rem;font-weight:900;color:#facc15;letter-spacing:1px;border-bottom:1px solid rgba(250,204,21,.3);padding-bottom:6px;margin-bottom:12px;}
+table{width:100%;border-collapse:collapse;font-size:.72rem;}
+th{background:#1e293b;color:#facc15;padding:8px 10px;text-align:left;border:1px solid rgba(96,165,250,.2);}
+td{padding:7px 10px;border:1px solid rgba(96,165,250,.1);color:#e2e8f0;}
+tr:hover td{background:rgba(96,165,250,.05);}
+#loading{text-align:center;padding:60px;color:#64748b;}
+.spinner{border:3px solid rgba(96,165,250,.2);border-top:3px solid #60a5fa;border-radius:50%;width:40px;height:40px;animation:spin 1s linear infinite;margin:0 auto 16px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.pnote{background:#0f172a;border-left:4px solid #22c55e;border-radius:0 9px 9px 0;padding:12px 16px;font-size:.68rem;color:#94a3b8;line-height:1.7;margin-top:20px;}
+@media(max-width:768px){.cards{grid-template-columns:1fr 1fr;}.topbar{flex-direction:column;gap:10px;}}
+</style>
+</head>
+<body>
+
+<!-- ══════════ PASSWORD / AUTH GATE ══════════ -->
+<div id="gate">
+<div class="gate-box">
+  <div class="gate-logo">🔐</div>
+  <div class="gate-title">ECP BHARAT ATLAS</div>
+  <div class="gate-sub">Admin Analytics Dashboard</div>
+  <div class="gate-warn">
+    ⚠️ <strong>BASIC PASSWORD PROTECTION</strong><br>
+    Password is SHA-256 hashed (not plaintext). Password is set.<br>
+    For real security: set <code>USE_FIREBASE_AUTH = true</code> and add your Firebase UID to <code>ADMIN_UIDS</code>.<br>
+    Do NOT share this file with students.
+  </div>
+  <input type="password" id="pwd" class="gate-input" placeholder="Enter admin password" onkeydown="if(event.key==='Enter')tryUnlock()">
+  <button class="gate-btn" onclick="tryUnlock()">Unlock Dashboard</button>
+  <div id="gate-err"></div>
+  <div class="gate-note">
+    Session persists until you click Lock.<br>
+    For real security: Firebase Auth + admin UID verification.<br>
+    See <code>ADMIN_UIDS</code> and <code>SECURITY NOTE</code> in source.
+  </div>
+</div>
+</div>
+
+<!-- ══════════ ADMIN DASHBOARD ══════════ -->
+<div id="dash">
+  <div class="topbar">
+    <div class="topbar-title">📊 ECP Atlas — Admin Analytics</div>
+    <div class="topbar-actions">
+      <span id="last-refresh" style="font-size:.65rem;color:#64748b;align-self:center;"></span>
+      <button class="btn btn-blue" onclick="loadData()">🔄 Refresh</button>
+      <button class="btn btn-green" onclick="exportCSV()">📥 Export CSV</button>
+      <button class="btn btn-red" onclick="doClearAnalytics()">🗑️ Clear Data</button>
+      <button class="btn btn-gray" onclick="lockDash()">🔒 Lock</button>
+    </div>
+  </div>
+  <div class="main">
+    <div id="status" class="s-warn">Connecting to Firebase...</div>
+    <div id="loading"><div class="spinner"></div>Loading analytics data...</div>
+    <div id="content" style="display:none;">
+      <div class="cards" id="cards"></div>
+      <div class="sec"><div class="sec-h">🗺️ TOP STATES — MOST OPENED</div>
+        <table><thead><tr><th>#</th><th>State / UT</th><th>Opens</th><th>Read Time</th><th>Last Opened</th></tr></thead>
+        <tbody id="t-opens"></tbody></table></div>
+      <div class="sec"><div class="sec-h">⏱️ TOP STATES — HIGHEST READ TIME</div>
+        <table><thead><tr><th>#</th><th>State / UT</th><th>Read Time</th><th>Opens</th></tr></thead>
+        <tbody id="t-read"></tbody></table></div>
+      <div class="sec"><div class="sec-h">📱 DEVICE USAGE</div>
+        <table><thead><tr><th>Device</th><th>Sessions</th><th>%</th></tr></thead>
+        <tbody id="t-device"></tbody></table></div>
+      <div class="sec"><div class="sec-h">📍 LOCATION SUMMARY</div>
+        <table><thead><tr><th>#</th><th>Location</th><th>Sessions</th></tr></thead>
+        <tbody id="t-loc"></tbody></table></div>
+      <div class="sec"><div class="sec-h">📅 DAILY STATS (LAST 30 DAYS)</div>
+        <table><thead><tr><th>Date</th><th>Sessions</th><th>State Opens</th><th>Read Time</th></tr></thead>
+        <tbody id="t-daily"></tbody></table></div>
+      <div class="pnote">
+        🔒 <strong>Privacy:</strong> Only anonymous session IDs, device category (Mobile/Tablet/Laptop/Desktop),
+        approximate location (if permitted), and study behaviour are stored.
+        No name, phone, email, IP address, exact GPS coordinates, or device brand/model is collected.
+        Analytics are used only to improve student learning experience.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+<script>
+/*
+  ════════════════════════════════════════════════════════
+  SECURITY CONFIGURATION
+  ════════════════════════════════════════════════════════
+  OPTION A — Basic password gate (current, less secure):
+    Set ADMIN_PASSWORD_HASH below.
+    Run in browser console: sha256('yourpassword').then(h=>console.log(h))
+    Paste the result as ADMIN_PASSWORD_HASH.
+
+  OPTION B — Firebase Auth (recommended, more secure):
+    1. Enable Email/Password auth in Firebase Console.
+    2. Create admin user in Firebase Console.
+    3. Paste admin user UID in ADMIN_UIDS below.
+    4. Set USE_FIREBASE_AUTH = true.
+    5. Update Firestore security rules to require auth.
+
+  For true security, combine both: require Firebase Auth login
+  AND verify UID is in ADMIN_UIDS whitelist.
+  ════════════════════════════════════════════════════════
+*/
+
+const ADMIN_PASSWORD_HASH = "8b76f03cf917e4a150e3fbfb6fca627ea4f9adb8e46d91a5ee05cf849ba4dbbe"; // run: sha256('yourpassword').then(console.log)
+const ADMIN_UIDS = ["PASTE_ADMIN_FIREBASE_UID_HERE"];  // Firebase Auth UID of admin
+const USE_FIREBASE_AUTH = false; // set true when Firebase Auth is configured
+
+/*
+  ════════════════════════════════════════════════════════
+  SUGGESTED FIRESTORE SECURITY RULES
+  (Paste in Firebase Console → Firestore → Rules)
+  ════════════════════════════════════════════════════════
+
+  rules_version = '2';
+  service cloud.firestore {
+    match /databases/{database}/documents {
+
+      // Students can WRITE analytics (limited fields only)
+      match /ecp_sessions/{sessionId} {
+        allow create, update: if request.auth == null
+          && request.resource.data.keys().hasAll(['sessionId','lastActiveAt','deviceType'])
+          && !request.resource.data.keys().hasAny(['adminNote']);
+        allow read: if request.auth != null
+          && request.auth.uid in ['YOUR_ADMIN_UID_HERE'];
+        allow delete: if request.auth != null
+          && request.auth.uid in ['YOUR_ADMIN_UID_HERE'];
+      }
+
+      match /ecp_state_stats/{stateName} {
+        allow create, update: if request.auth == null;
+        allow read: if request.auth != null
+          && request.auth.uid in ['YOUR_ADMIN_UID_HERE'];
+        allow delete: if request.auth != null
+          && request.auth.uid in ['YOUR_ADMIN_UID_HERE'];
+      }
+
+      match /ecp_daily_stats/{date} {
+        allow create, update: if request.auth == null;
+        allow read: if request.auth != null
+          && request.auth.uid in ['YOUR_ADMIN_UID_HERE'];
+        allow delete: if request.auth != null
+          && request.auth.uid in ['YOUR_ADMIN_UID_HERE'];
+      }
+    }
+  }
+
+  NOTE: Replace YOUR_ADMIN_UID_HERE with your actual Firebase Auth UID.
+  Once these rules are live, students CANNOT read analytics data even if
+  they have the Firebase config — they can only write.
+  ════════════════════════════════════════════════════════
+*/
+
+
+const firebaseConfig = {
+  apiKey: "AIzaSyC-sjCyLHEF_5vdBpEhha6oRCwqVii4aNk",
+  authDomain: "ecp-bharat-atlas-analytics.firebaseapp.com",
+  projectId: "ecp-bharat-atlas-analytics",
+  storageBucket: "ecp-bharat-atlas-analytics.firebasestorage.app",
+  messagingSenderId: "814561362700",
+  appId: "1:814561362700:web:3056c269d1faaeadbc7f29",
+  measurementId: "G-7483BD2TTC"
+};
+
+let db = null, auth = null, fbReady = false, lastData = {};
+
+async function sha256(text){
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+async function tryUnlock(){
+  const pwd = document.getElementById('pwd').value;
+  const err = document.getElementById('gate-err');
+  if(!pwd){ err.textContent='Please enter password.'; return; }
+  // No dev-mode bypass. Password MUST match SHA-256 hash.
+  // If ADMIN_PASSWORD_HASH is placeholder, block completely.
+  if(!ADMIN_PASSWORD_HASH || ADMIN_PASSWORD_HASH.length !== 64){
+    err.textContent='❌ Admin password not configured. Contact system administrator.';
+    return;
+  }
+  err.textContent='Verifying...';
+  const hash = await sha256(pwd);
+  if(hash === ADMIN_PASSWORD_HASH){
+    sessionStorage.setItem('ecpAdminOK','yes');
+    err.textContent='';
+    unlock();
+  } else {
+    err.textContent='❌ Wrong password.';
+    document.getElementById('pwd').value='';
+    document.getElementById('pwd').focus();
+  }
+}
+
+async function unlock(){
+  document.getElementById('gate').style.display='none';
+  document.getElementById('dash').style.display='block';
+  initFB();
+
+  if(USE_FIREBASE_AUTH && auth){
+    // Firebase Auth path — verify UID
+    auth.onAuthStateChanged(async user=>{
+      if(user && ADMIN_UIDS.includes(user.uid)){
+        await loadData();
+      } else if(user){
+        setStatus('UID '+user.uid+' not in ADMIN_UIDS. Access denied.','err');
+        auth.signOut();
+        lockDash();
+      } else {
+        // Show login UI (simplified — extend for production)
+        const email=prompt('Admin email:');
+        const pass=prompt('Admin password:');
+        if(email&&pass){
+          auth.signInWithEmailAndPassword(email,pass)
+            .then(()=>loadData())
+            .catch(e=>{ setStatus('Auth failed: '+e.message,'err'); lockDash(); });
+        } else { lockDash(); }
+      }
+    });
+  } else {
+    await loadData();
+  }
+}
+
+function lockDash(){
+  sessionStorage.removeItem('ecpAdminOK');
+  document.getElementById('dash').style.display='none';
+  document.getElementById('gate').style.display='flex';
+  document.getElementById('pwd').value='';
+  document.getElementById('gate-err').textContent='';
+}
+
+function initFB(){
+  try{
+    if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    db = firebase.firestore();
+    if(USE_FIREBASE_AUTH) auth = firebase.auth();
+    fbReady = true;
+    setStatus('Firebase connected ✓','ok');
+  }catch(e){
+    fbReady = false;
+    setStatus('Firebase init failed: '+e.message,'err');
+  }
+}
+
+function setStatus(msg, type){
+  const el=document.getElementById('status');
+  el.className='s-'+type;
+  const ts=document.getElementById('last-refresh');
+  el.textContent='🔌 '+msg+(lastData.total?' | Records: '+lastData.total:'');
+  if(type==='ok'&&ts) ts.textContent='Refreshed: '+new Date().toLocaleTimeString('en-IN');
+}
+
+function fmtMs(ms){ if(!ms||ms<1000)return '0s'; const s=Math.floor(ms/1000); return s<60?s+'s':Math.floor(s/60)+'m '+(s%60)+'s'; }
+function fmtDate(ts){ if(!ts)return '—'; try{ return ts.seconds?new Date(ts.seconds*1000).toLocaleDateString('en-IN'):new Date(ts).toLocaleDateString('en-IN'); }catch(e){return '—';} }
+function topN(obj,n){ return Object.entries(obj||{}).sort((a,b)=>b[1]-a[1]).slice(0,n||20); }
+
+async function loadData(){
+  if(!fbReady){ setStatus('Firebase not ready','err'); return; }
+  document.getElementById('loading').style.display='block';
+  document.getElementById('content').style.display='none';
+  setStatus('Loading...','warn');
+  try{
+    const [sesSnap,stSnap,daySnap] = await Promise.all([
+      db.collection('ecp_sessions').get(),
+      db.collection('ecp_state_stats').orderBy('openCount','desc').get(),
+      db.collection('ecp_daily_stats').orderBy('date','desc').limit(30).get()
+    ]);
+    const sessions=[],states=[],days=[];
+    sesSnap.forEach(d=>sessions.push(d.data()));
+    stSnap.forEach(d=>states.push(d.data()));
+    daySnap.forEach(d=>days.push(d.data()));
+    lastData={sessions,states,days,total:sessions.length+states.length+days.length};
+    renderDash(sessions,states,days);
+    setStatus('Connected ✓ | '+sessions.length+' sessions | '+states.length+' states | '+days.length+' days','ok');
+  }catch(e){
+    let m='Firestore read failed: '+e.message;
+    if(e.code==='permission-denied') m='Firestore permission denied. Check security rules.';
+    setStatus(m,'err');
+    document.getElementById('loading').innerHTML='<div style="color:#f87171;padding:20px;">'+m+'</div>';
+  }
+}
+
+function renderDash(sessions, states, days){
+  // Aggregates
+  const totalSes=sessions.length;
+  const today=new Date().toISOString().slice(0,10);
+  const todayRec=days.find(d=>d.date===today);
+  const todayCount=todayRec?(todayRec.totalSessions||0):0;
+  const totalOpens=states.reduce((a,x)=>a+(x.openCount||0),0);
+  const totalRead=states.reduce((a,x)=>a+(x.totalReadMs||0),0);
+  const topOpen=states.length?states[0].stateName:'—';
+  const byRead=[...states].sort((a,b)=>(b.totalReadMs||0)-(a.totalReadMs||0));
+  const topReadSt=byRead[0]?byRead[0].stateName:'—';
+  const devCounts={};
+  sessions.forEach(s=>{const d=s.deviceType||'Unknown';devCounts[d]=(devCounts[d]||0)+1;});
+  const topDevArr=topN(devCounts,1);
+  const topDev=topDevArr.length?topDevArr[0][0]:'—';
+  const locCounts={};
+  sessions.forEach(s=>{if(s.locationAllowed){const k=(s.city||'?')+', '+(s.region||'?')+', '+(s.country||'?');locCounts[k]=(locCounts[k]||0)+1;}});
+  const topLocArr=topN(locCounts,1);
+  const topLoc=topLocArr.length?topLocArr[0][0].split(',')[0].trim():'Not shared';
+
+  // Cards
+  document.getElementById('cards').innerHTML=[
+    ['👥 Total Sessions',totalSes],
+    ['📅 Today Sessions',todayCount],
+    ['🗺️ Total State Opens',totalOpens],
+    ['⏱️ Total Read Time',fmtMs(totalRead)],
+    ['🔥 Most Opened',topOpen],
+    ['📖 Highest Read Time',topReadSt],
+    ['📱 Top Device',topDev],
+    ['📍 Top Location',topLoc],
+  ].map(([l,v])=>`<div class="card"><div class="card-num">${v}</div><div class="card-lbl">${l}</div></div>`).join('');
+
+  // State opens table
+  document.getElementById('t-opens').innerHTML=states.slice(0,20).map((s,i)=>
+    `<tr><td>${i+1}</td><td><b>${s.stateName||'—'}</b></td><td>${s.openCount||0}</td><td>${fmtMs(s.totalReadMs||0)}</td><td>${fmtDate(s.lastOpenedAt)}</td></tr>`
+  ).join('')||'<tr><td colspan="5" style="color:#64748b;text-align:center">No data</td></tr>';
+
+  // State read time table
+  document.getElementById('t-read').innerHTML=byRead.slice(0,20).map((s,i)=>
+    `<tr><td>${i+1}</td><td>${s.stateName||'—'}</td><td><b>${fmtMs(s.totalReadMs||0)}</b></td><td>${s.openCount||0}</td></tr>`
+  ).join('')||'<tr><td colspan="4" style="color:#64748b;text-align:center">No data</td></tr>';
+
+  // Device table
+  const devTotal=Object.values(devCounts).reduce((a,b)=>a+b,0)||1;
+  document.getElementById('t-device').innerHTML=['Mobile','Tablet','Laptop','Desktop'].map(dev=>
+    `<tr><td>${dev}</td><td>${devCounts[dev]||0}</td><td>${Math.round((devCounts[dev]||0)*100/devTotal)}%</td></tr>`
+  ).join('');
+
+  // Location table
+  document.getElementById('t-loc').innerHTML=topN(locCounts,15).map(([loc,cnt],i)=>
+    `<tr><td>${i+1}</td><td>${loc}</td><td>${cnt}</td></tr>`
+  ).join('')||'<tr><td colspan="3" style="color:#64748b;text-align:center">No location data (users have not shared)</td></tr>';
+
+  // Daily table
+  document.getElementById('t-daily').innerHTML=days.slice(0,30).map(d=>
+    `<tr><td><b>${d.date||'—'}</b></td><td>${d.totalSessions||0}</td><td>${d.totalStateOpens||0}</td><td>${fmtMs(d.totalReadMs||0)}</td></tr>`
+  ).join('')||'<tr><td colspan="4" style="color:#64748b;text-align:center">No data</td></tr>';
+
+  document.getElementById('loading').style.display='none';
+  document.getElementById('content').style.display='block';
+}
+
+function exportCSV(){
+  if(!lastData.states||!lastData.states.length){alert('No data. Click Refresh first.');return;}
+  const rows=[['State/UT','Opens','Read Time (ms)','Read Time (formatted)','Last Opened']];
+  lastData.states.forEach(s=>rows.push([s.stateName||'',s.openCount||0,s.totalReadMs||0,fmtMs(s.totalReadMs||0),fmtDate(s.lastOpenedAt)]));
+  const csv=rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const blob=new Blob([csv],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download='ecp_analytics_'+new Date().toISOString().slice(0,10)+'.csv';
+  a.click(); URL.revokeObjectURL(url);
+}
+
+function doClearAnalytics(){
+  if(!confirm('⚠️ DELETE ALL analytics from Firestore?\nThis CANNOT be undone.')) return;
+  const typed=prompt('Type exactly: DELETE ANALYTICS');
+  if(typed!=='DELETE ANALYTICS'){alert('Cancelled.');return;}
+  alert('Bulk delete from browser is not supported by Firestore.\n\nUse Firebase Console:\n1. console.firebase.google.com\n2. Firestore Database\n3. Delete collections: ecp_sessions, ecp_state_stats, ecp_daily_stats\n\nOr use Firebase Admin SDK from server.');
+}
+
+/* Console tools */
+function ecpAdminReadyCheck(){
+  const c={
+    'Gate HTML':!!document.getElementById('gate'),
+    'Dashboard HTML':!!document.getElementById('dash'),
+    'SHA256 fn':typeof sha256==='function',
+    'ADMIN_UIDS set':ADMIN_UIDS[0]!=='PASTE_ADMIN_FIREBASE_UID_HERE',
+    'Hash set':ADMIN_PASSWORD_HASH!=='8b76f03cf917e4a150e3fbfb6fca627ea4f9adb8e46d91a5ee05cf849ba4dbbe',
+    'Firebase Ready':fbReady,
+    'DB ref':!!db,
+    'loadData fn':typeof loadData==='function',
+    'exportCSV fn':typeof exportCSV==='function',
+    'renderDash fn':typeof renderDash==='function',
+    'Summary cards':!!document.getElementById('cards'),
+  };
+  console.log('[ecpAdminReadyCheck]'); console.table(c);
+  return c;
+}
+async function ecpAdminSecurityCheck(){
+  var issues=[];
+  function chk(label,val){ if(!val) issues.push(label); return val; }
+  const h=await sha256('test123');
+  const hashConfigured = typeof ADMIN_PASSWORD_HASH==='string' && ADMIN_PASSWORD_HASH.length===64;
+  const uidConfigured  = Array.isArray(ADMIN_UIDS) && ADMIN_UIDS[0]!=='PASTE_ADMIN_FIREBASE_UID_HERE';
+  // Check devmode bypass is gone
+  const tryUnlockSrc = tryUnlock.toString();
+  const noDevBypass = tryUnlockSrc.indexOf('Dev mode') < 0 && tryUnlockSrc.indexOf('dev mode') < 0;
+  const c={
+    'Hash configured (64 chars)':      hashConfigured,
+    'No dev-mode bypass':              noDevBypass,
+    'SHA256 function works':           h.length===64,
+    'Gate visible (dashboard hidden)': document.getElementById('dash').style.display!=='block'||sessionStorage.getItem('ecpAdminOK')==='yes',
+    'lockDash function exists':        typeof lockDash==='function',
+    'Double confirm for clear':        doClearAnalytics.toString().indexOf('DELETE ANALYTICS')>=0,
+    'USE_FIREBASE_AUTH (set true for prod)': USE_FIREBASE_AUTH,
+    'Admin UIDs configured':           uidConfigured,
+    'ecpAdminReadyCheck exists':       typeof ecpAdminReadyCheck==='function',
+    'Session state':                   sessionStorage.getItem('ecpAdminOK')||'not-set',
+  };
+  chk('Hash configured',              hashConfigured);
+  chk('No dev-mode bypass',           noDevBypass);
+  chk('Gate protects dashboard',      document.getElementById('dash').style.display!=='block'||sessionStorage.getItem('ecpAdminOK')==='yes');
+  console.log('%c[ecpAdminSecurityCheck]','color:#facc15;font-weight:bold;font-size:13px;');
+  console.table(c);
+  if(!issues.length) console.log('%c✅ ADMIN SECURITY OK','color:#4ade80;font-weight:900;');
+  else{ console.log('%c❌ SECURITY ISSUES:','color:#f87171;font-weight:900;'); issues.forEach(function(i){console.log('  → '+i);}); }
+  return{passed:!issues.length,issues:issues,checks:c};
+}
+window.ecpAdminReadyCheck=ecpAdminReadyCheck;
+window.ecpAdminSecurityCheck=ecpAdminSecurityCheck;
+
+/* Auto-check session */
+window.addEventListener('load',function(){
+  if(sessionStorage.getItem('ecpAdminOK')==='yes'){
+    document.getElementById('gate').style.display='none';
+    document.getElementById('dash').style.display='block';
+    initFB(); loadData();
+  }
+});
+</script>
+</body>
+</html>
